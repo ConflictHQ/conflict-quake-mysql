@@ -1,0 +1,58 @@
+# astrolift.toml — Astrolift app manifest
+#
+# The MySQL twin of conflict-exo-pg. The point is the managed service at the
+# bottom: Aurora Serverless v2 with min_acu = 0 and auto-pause, so after five
+# idle minutes the compute stops and only storage is billed. The first query
+# afterwards pays a resume, which is why connection latency is on the front
+# page instead of hidden.
+
+astrolift_version = 1
+name = "conflict-quake-mysql"
+
+[app]
+slug = "conflict-quake-mysql"
+display_name = "Seismic on Aurora MySQL"
+
+[environments.production]
+
+[[workloads]]
+name = "web"
+kind = "deployment"
+replicas = 1
+is_public = true
+cpu_request = "100m"
+cpu_limit = "500m"
+memory_request = "192Mi"
+memory_limit = "384Mi"
+
+  [[workloads.containers]]
+  name = "web"
+  is_primary = true
+  port = 8080
+
+    # Liveness deliberately does not touch the database: a paused Aurora would
+    # otherwise read as an unhealthy pod and get restarted mid-resume.
+    [workloads.containers.healthcheck]
+    kind = "http"
+    value = "/health"
+    port = 8080
+
+    [workloads.containers.env]
+    PYTHONUNBUFFERED = "1"
+    DB_CONNECT_TIMEOUT = "45"
+
+[[managed_services]]
+kind = "mysql"
+name = "quakes"
+variant = "aurora_mysql_serverless_v2"
+size = "small"
+
+  [managed_services.extensions]
+  # 0 is the whole point. seconds_until_auto_pause is only accepted when
+  # min_acu is 0 -- the driver validates that pairing
+  # (providers/aws/managed/aurora.py: "auto-pause requires min_acu=0").
+  min_acu = 0
+  max_acu = 2
+  seconds_until_auto_pause = 300
+  # Pinned rather than left to the AWS default: 0 ACU needs a recent minor.
+  engine_version = "8.0.mysql_aurora.3.08.2"
